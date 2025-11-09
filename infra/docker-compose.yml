@@ -1,43 +1,36 @@
+version: "3.9"
+
 services:
-  # 🧭 Reverse Proxy + Automatic HTTPS
+  # ----------------------------------------------------
+  # Traefik Reverse Proxy (handles SSL + routing)
+  # ----------------------------------------------------
   traefik:
     image: traefik:v3.1
     container_name: traefik
+    restart: unless-stopped
     command:
-      # Enable Docker as a provider
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
-
-      # Entry points for HTTP and HTTPS
       - "--entrypoints.web.address=:80"
       - "--entrypoints.websecure.address=:443"
-
-      # Enable Let's Encrypt (ACME)
       - "--certificatesresolvers.letsencrypt.acme.httpchallenge=true"
       - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
       - "--certificatesresolvers.letsencrypt.acme.email=info@innoscents.co.uk"
       - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
-
-      # Optional: enable dashboard (accessible internally)
-      - "--api.dashboard=true"
-      - "--api.insecure=false"
-
     ports:
       - "80:80"
       - "443:443"
-
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock:ro"
-      - "./traefik/traefik.yml:/traefik.yml:ro"
-      - "./traefik/acme.json:/letsencrypt/acme.json"
+      - "./traefik:/letsencrypt"
+    networks:
+      - streamstats
 
-    restart: unless-stopped
-
-  # 🟣 API Service (Node/Express/Prisma backend)
+  # ----------------------------------------------------
+  # API Service
+  # ----------------------------------------------------
   api:
-    build:
-      context: ../apps/api
-      dockerfile: Dockerfile
+    image: ghcr.io/streamstats01/streamstats-api:latest
     container_name: streamstats-api
     env_file:
       - ../.env
@@ -48,12 +41,14 @@ services:
       - "traefik.http.routers.api.tls.certresolver=letsencrypt"
       - "traefik.http.services.api.loadbalancer.server.port=3000"
     restart: unless-stopped
+    networks:
+      - streamstats
 
-  # 🟢 Web Service (React/Vite frontend build)
+  # ----------------------------------------------------
+  # Web Frontend
+  # ----------------------------------------------------
   web:
-    build:
-      context: ../apps/web
-      dockerfile: Dockerfile
+    image: ghcr.io/streamstats01/streamstats-web:latest
     container_name: streamstats-web
     labels:
       - "traefik.enable=true"
@@ -62,7 +57,12 @@ services:
       - "traefik.http.routers.web.tls.certresolver=letsencrypt"
       - "traefik.http.services.web.loadbalancer.server.port=80"
     restart: unless-stopped
+    networks:
+      - streamstats
 
+# ----------------------------------------------------
+# Networks
+# ----------------------------------------------------
 networks:
-  default:
-    name: streamstats
+  streamstats:
+    driver: bridge
